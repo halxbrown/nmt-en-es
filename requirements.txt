@@ -1,0 +1,10 @@
+# Milestone 1
+torch>=2.1
+datasets>=3.0          # opus-100 is Parquet-backed, so no trust_remote_code needed
+sentencepiece>=0.2.0
+numpy>=1.24
+
+# Milestone 3-4 (not imported yet, listed so the environment is built once)
+sacrebleu>=2.4
+rouge-score>=0.1.2
+matplotlib>=3.7        # attention maps / loss curves

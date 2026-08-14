@@ -1,0 +1,47 @@
+{
+  "config": {
+    "dataset": "Helsinki-NLP/opus-100:en-es",
+    "target_train_pairs": 100000,
+    "vocab_size": 16000,
+    "model_type": "bpe",
+    "batch_size": 64,
+    "max_tokens_per_side": 128,
+    "seed": 1337
+  },
+  "split_sizes": {
+    "train": 100000,
+    "valid": 2000,
+    "test": 2000
+  },
+  "length_percentiles": {
+    "src": {
+      "p50": 12,
+      "p90": 39,
+      "p95": 52,
+      "p99": 80,
+      "p100": 128
+    },
+    "tgt": {
+      "p50": 13,
+      "p90": 43,
+      "p95": 58,
+      "p99": 88,
+      "p100": 128
+    }
+  },
+  "truncated_at_cap": 93,
+  "padding_efficiency": {
+    "bucketed": {
+      "real_tokens": 234380,
+      "tensor_cells": 300544,
+      "useful_fraction": 0.7798525340715503,
+      "wasted_on_padding": 0.2201474659284497
+    },
+    "random_batching": {
+      "real_tokens": 241880,
+      "tensor_cells": 1059328,
+      "useful_fraction": 0.22833343402609957,
+      "wasted_on_padding": 0.7716665659739004
+    }
+  }
+}

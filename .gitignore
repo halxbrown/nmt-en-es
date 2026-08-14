@@ -1,0 +1,11 @@
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+data/
+artifacts/*.npz
+artifacts/*.vocab
+checkpoints/
+*.pt
+!artifacts/*.model

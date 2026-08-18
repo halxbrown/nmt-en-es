@@ -10,7 +10,7 @@ from OPUS-100.
 | M1 — data, tokenizer, DataLoader | done |
 | M2 — model class, forward pass, masking | done |
 | M3 — training loop, label smoothing, beam search | done |
-| M4 — BLEU/ROUGE, error analysis | pending |
+| M4 — BLEU/ROUGE, error analysis | done |
 
 ## Quickstart
 
@@ -42,6 +42,8 @@ src/decode.py             greedy + batched beam search
 run_milestone2.py         model build + behavioural mask verification
 run_milestone3.py         train presets, compare greedy vs beam
 verify_decoding.py        decoder correctness tests
+src/analysis.py           bootstrap significance, length buckets, attention maps
+run_milestone4.py         held-out test evaluation + error analysis
 notebooks/                Colab notebook (T4 + Drive checkpointing)
 artifacts/                tokenizer model, encoded caches, stats JSON
 data/processed/           train/valid/test .en and .es plain text
@@ -181,3 +183,37 @@ failure.
 Incremental decoding with a KV cache. Each beam step currently re-runs the
 decoder over the whole prefix, which is O(T^2) overall. At these lengths it is
 not the bottleneck, and the simpler code is far easier to verify.
+
+
+## Milestone 4 notes
+
+**Test set, not validation.** Milestone 3's numbers came from the validation
+set, which selected the checkpoint, so they are optimistically biased. All final
+results are computed on `test`, untouched until this point.
+
+**Significance testing.** A BLEU gap means nothing without it. We use a paired
+bootstrap (Koehn, 2004): resample the test set with replacement, rescore both
+systems on the *same* resample, and count how often the gap reverses. Since
+corpus BLEU is not the mean of sentence BLEUs, per-sentence sufficient
+statistics (clipped n-gram matches, totals, lengths) are cached once and
+re-aggregated per resample. The implementation was validated to match sacreBLEU
+to six decimal places across four noise regimes from 1.57 to 67.76 BLEU.
+
+**Length-bucketed BLEU.** Corpus BLEU is dominated by whatever length dominates
+the corpus, and OPUS-100 en-es is subtitle dialogue with a median of 12
+subwords. A headline score can hide near-total failure on long sentences, so
+results are reported per bucket with the hypothesis/reference length ratio
+alongside — a ratio well under 1.0 in the long buckets is direct evidence of
+truncation.
+
+**sacreBLEU signature** is recorded with every score
+(`nrefs:1|case:mixed|eff:no|tok:13a|smooth:exp|version:2.6.0`). BLEU is not
+comparable across different tokenizations, so the bare number is not
+reproducible without it.
+
+**Error categories** (truncation, over-generation, repetition, untranslated
+entity) are heuristic detectors meant to surface candidates. The report quotes
+sentences that were actually read, not whatever the classifier labelled.
+
+**Attention maps** come free because attention is implemented manually and every
+module returns its weight matrix — no forward hooks needed.

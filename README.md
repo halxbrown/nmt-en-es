@@ -12,6 +12,63 @@ from OPUS-100.
 | M3 — training loop, label smoothing, beam search | done |
 | M4 — BLEU/ROUGE, error analysis | done |
 
+## Running the translator locally
+
+Training happens on Colab; inference runs fine on a laptop CPU. Three steps.
+
+**1. Export a slim checkpoint (in Colab, after training).** `best.pt` carries
+AdamW's two moment tensors per parameter plus scheduler and history — roughly
+340 MB, where the weights alone are 113 MB.
+
+```python
+!python export_model.py --preset base --checkpoint-dir "{CKPT_DIR}"
+!cp "{CKPT_DIR}"/base/base_inference.pt "{DRIVE_ROOT}/"
+```
+
+**2. Download `base_inference.pt` from Drive into `models/`.**
+The tokenizer is already in the repo (`artifacts/spm_enes.model`), which is
+why that binary is version-controlled — the checkpoint is meaningless without
+the exact vocabulary it was trained against.
+
+**3. Verify:**
+
+```bash
+python setup_local.py
+```
+
+This checks packages, project files, tokenizer and checkpoint, then runs three
+real translations. It reports precisely what is missing and how to fix it.
+`translate.py` also validates that the checkpoint's embedding matrix matches the
+tokenizer's vocabulary — a mismatch loads without error and then emits fluent
+nonsense, so it is checked explicitly rather than left to be discovered.
+
+In VS Code, **F5** offers three launch configurations: interactive translator,
+single-sentence comparison, and the setup check.
+
+## Using the trained model
+
+```bash
+# one sentence
+python translate.py --text "Where is the train station?"
+
+# interactive
+python translate.py
+
+# a file, one sentence per line
+python translate.py --file english.txt --out spanish.txt
+
+# greedy vs beam side by side
+python translate.py --text "It never took place." --compare
+```
+
+Needs `artifacts/spm_enes.model` (tracked in this repo) and a checkpoint. To
+make the checkpoint portable, run `python export_model.py --preset base` — this
+strips optimizer and scheduler state, cutting ~340 MB to ~113 MB.
+
+Quality expectation: ~26 BLEU on OPUS-100 test data. Trained on 100k subtitle
+pairs, so short conversational English works reasonably; long sentences, idioms,
+technical register and proper nouns degrade.
+
 ## Quickstart
 
 ```bash
@@ -22,6 +79,10 @@ python run_milestone1.py           # real run against opus-100 en-es
 python run_milestone1.py --force   # rebuild data + tokenizer from scratch
 python run_milestone2.py           # model build + masking verification
 ```
+
+Milestones 3 and 4 need a GPU. Open `notebooks/nmt_full_pipeline.ipynb` in
+Colab on a T4 — it runs the entire pipeline end to end, from data preparation
+through training, evaluation, and export.
 
 The real run downloads roughly 200 MB of Parquet, cleans ~1M pairs down to
 100k, trains a 16k joint BPE vocabulary, and caches the encoded corpus. It is
@@ -42,9 +103,14 @@ src/decode.py             greedy + batched beam search
 run_milestone2.py         model build + behavioural mask verification
 run_milestone3.py         train presets, compare greedy vs beam
 verify_decoding.py        decoder correctness tests
+translate.py              interactive EN->ES translator
+export_model.py           strip optimizer state for a portable checkpoint
+setup_local.py            verify the local install can run the model
+models/                   drop downloaded inference checkpoints here
+.vscode/                  launch configs (F5 runs the translator)
 src/analysis.py           bootstrap significance, length buckets, attention maps
 run_milestone4.py         held-out test evaluation + error analysis
-notebooks/                Colab notebook (T4 + Drive checkpointing)
+notebooks/                nmt_full_pipeline.ipynb — all milestones, one notebook
 artifacts/                tokenizer model, encoded caches, stats JSON
 data/processed/           train/valid/test .en and .es plain text
 ```

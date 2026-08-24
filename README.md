@@ -45,30 +45,6 @@ nonsense, so it is checked explicitly rather than left to be discovered.
 In VS Code, **F5** offers three launch configurations: interactive translator,
 single-sentence comparison, and the setup check.
 
-## Using the trained model
-
-```bash
-# one sentence
-python translate.py --text "Where is the train station?"
-
-# interactive
-python translate.py
-
-# a file, one sentence per line
-python translate.py --file english.txt --out spanish.txt
-
-# greedy vs beam side by side
-python translate.py --text "It never took place." --compare
-```
-
-Needs `artifacts/spm_enes.model` (tracked in this repo) and a checkpoint. To
-make the checkpoint portable, run `python export_model.py --preset base` — this
-strips optimizer and scheduler state, cutting ~340 MB to ~113 MB.
-
-Quality expectation: ~26 BLEU on OPUS-100 test data. Trained on 100k subtitle
-pairs, so short conversational English works reasonably; long sentences, idioms,
-technical register and proper nouns degrade.
-
 ## Quickstart
 
 ```bash
@@ -92,27 +68,34 @@ CPU-only and takes a few minutes — no GPU needed until Milestone 3.
 
 ```
 config.py                 all tunable settings in one dataclass tree
-run_milestone1.py         driver + sanity report
-src/data_prep.py          download, normalise, filter, write parallel text
-src/tokenizer.py          joint SentencePiece BPE + wrapper
-src/dataset.py            ragged storage, dynamic-padding collate, bucketing
-src/masking.py            causal mask + structural mask assertions
-src/model.py              Transformer: manual attention, tied embeddings
-src/train.py              training loop, AMP, checkpointing, early stopping
-src/decode.py             greedy + batched beam search
-run_milestone2.py         model build + behavioural mask verification
-run_milestone3.py         train presets, compare greedy vs beam
+
+src/                      importable modules (training and inference share these)
+  data_prep.py            download, normalise, filter, write parallel text
+  tokenizer.py            joint SentencePiece BPE + wrapper
+  dataset.py              ragged storage, dynamic-padding collate, bucketing
+  masking.py              causal mask + structural mask assertions
+  model.py                Transformer: manual attention, tied embeddings
+  train.py                training loop, AMP, checkpointing, early stopping
+  decode.py               greedy + batched beam search
+  analysis.py             bootstrap significance, length buckets, attention maps
+
+run_milestone1.py         M1: data pipeline + sanity report
+run_milestone2.py         M2: model build + behavioural mask verification
+run_milestone3.py         M3: train presets, compare greedy vs beam
+run_milestone4.py         M4: held-out test evaluation + error analysis
 verify_decoding.py        decoder correctness tests
+sweep_length_penalty.py   tune length penalty on validation, apply once to test
+
 translate.py              interactive EN->ES translator
-export_model.py           strip optimizer state for a portable checkpoint
 setup_local.py            verify the local install can run the model
-models/                   drop downloaded inference checkpoints here
-.vscode/                  launch configs (F5 runs the translator)
-src/analysis.py           bootstrap significance, length buckets, attention maps
-run_milestone4.py         held-out test evaluation + error analysis
+export_model.py           strip optimizer state for a portable checkpoint
+
 notebooks/                nmt_full_pipeline.ipynb — all milestones, one notebook
+reports/                  report draft
+models/                   downloaded inference checkpoints (gitignored)
 artifacts/                tokenizer model, encoded caches, stats JSON
 data/processed/           train/valid/test .en and .es plain text
+.vscode/                  launch configs (F5 runs the translator)
 ```
 
 ## Design decisions worth defending in the report
@@ -244,13 +227,6 @@ and then inverts the permutation. Forgetting the inversion misaligns hypotheses
 against references and yields a near-zero BLEU that looks exactly like a model
 failure.
 
-## Future work
-
-Incremental decoding with a KV cache. Each beam step currently re-runs the
-decoder over the whole prefix, which is O(T^2) overall. At these lengths it is
-not the bottleneck, and the simpler code is far easier to verify.
-
-
 ## Milestone 4 notes
 
 **Test set, not validation.** Milestone 3's numbers came from the validation
@@ -283,3 +259,9 @@ sentences that were actually read, not whatever the classifier labelled.
 
 **Attention maps** come free because attention is implemented manually and every
 module returns its weight matrix — no forward hooks needed.
+
+## Future work
+
+Incremental decoding with a KV cache. Each beam step currently re-runs the
+decoder over the whole prefix, which is O(T^2) overall. At these lengths it is
+not the bottleneck, and the simpler code is far easier to verify.

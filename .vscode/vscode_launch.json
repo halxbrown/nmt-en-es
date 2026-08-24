@@ -1,0 +1,30 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Translate (interactive)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/translate.py",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Translate (one sentence)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/translate.py",
+      "args": ["--text", "Where is the train station?", "--compare"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Check local setup",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/setup_local.py",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}

@@ -9,3 +9,5 @@ artifacts/*.vocab
 checkpoints/
 *.pt
 !artifacts/*.model
+models/*
+!models/.gitkeep

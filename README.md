@@ -12,13 +12,39 @@ from OPUS-100.
 | M3 — training loop, label smoothing, beam search | done |
 | M4 — BLEU/ROUGE, error analysis | done |
 
+## Results
+
+Held-out test set, 2,000 sentences, never used for training or checkpoint
+selection. sacreBLEU signature
+`nrefs:1|case:mixed|eff:no|tok:13a|smooth:exp|version:2.6.0`.
+
+| Model | Params | Greedy | Beam k=5 | Beam + tuned α | chrF | ROUGE-L |
+|---|---:|---:|---:|---:|---:|---:|
+| base | 37.6M | 24.82 | 25.88 | **26.24** | 50.49 | 50.84 |
+| small | 24.0M | 23.99 | 24.87 | 25.40 | 49.70 | 50.28 |
+
+Every comparison carries a paired bootstrap (1,000 resamples):
+
+| Comparison | Δ BLEU | 95% CI | p |
+|---|---:|---|---:|
+| base: beam − greedy | +1.06 | [+0.69, +1.46] | < 0.001 |
+| small: beam − greedy | +0.88 | [+0.54, +1.23] | < 0.001 |
+| beam: base − small | +1.01 | [+0.50, +1.49] | < 0.001 |
+| base: tuned α − default | +0.36 | [+0.02, +0.63] | 0.021 |
+| small: tuned α − default | +0.53 | [+0.29, +0.78] | < 0.001 |
+
+Training: 20 epochs each on a Colab T4, ~2.3 min/epoch (base) and ~1.8 min
+(small). Best validation loss 3.4754 and 3.5706, both at epoch 19; neither
+model triggered early stopping.
+
 ## Running the translator locally
 
 Training happens on Colab; inference runs fine on a laptop CPU. Three steps.
 
 **1. Export a slim checkpoint (in Colab, after training).** `best.pt` carries
-AdamW's two moment tensors per parameter plus scheduler and history — roughly
-340 MB, where the weights alone are 113 MB.
+AdamW's two moment tensors per parameter plus scheduler and history — 430.7 MB
+for base, where the weights alone are 143.6 MB (a 67% reduction). small goes
+274.4 MB → 91.5 MB.
 
 ```python
 !python export_model.py --preset base --checkpoint-dir "{CKPT_DIR}"
@@ -60,7 +86,7 @@ Milestones 3 and 4 need a GPU. Open `notebooks/nmt_full_pipeline.ipynb` in
 Colab on a T4 — it runs the entire pipeline end to end, from data preparation
 through training, evaluation, and export.
 
-The real run downloads roughly 200 MB of Parquet, cleans ~1M pairs down to
+The real run downloads roughly 100 MB of Parquet, cleans 1M pairs down to
 100k, trains a 16k joint BPE vocabulary, and caches the encoded corpus. It is
 CPU-only and takes a few minutes — no GPU needed until Milestone 3.
 
@@ -129,9 +155,11 @@ given how much duplication OPUS contains.
 
 **Dynamic padding + length bucketing.** The collate function pads to the longest
 sequence in the batch, and the sampler groups similar-length sequences by
-sorting within shuffled megabatches. On the smoke corpus this moves useful
-tensor occupancy from 53% to 89%; expect a similar gap on real data. Report the
-measured numbers from `artifacts/milestone1_stats.json`.
+sorting within shuffled megabatches, keyed on the *sum* of source and target
+length so both tensors are packed. Measured on the real corpus: useful tensor
+occupancy rises from 22.8% to 78.0%, a 3.42× reduction in wasted attention
+cells per epoch. Sorting on combined rather than source-only length accounted
+for 3.4 points of that (74.6% → 78.0%).
 
 **Mask convention.** `True` means "ignore this position" for both
 `key_padding_mask` and boolean `attn_mask`, matching PyTorch. This is the
@@ -174,9 +202,12 @@ mask leaks.
 **Behavioural mask verification.** Milestone 1 checked mask *shapes*. Milestone 2
 checks mask *effects*: corrupting a target token must leave every earlier
 prediction bit-identical, and appending source padding must leave all logits
-bit-identical. Both currently return exactly 0.0 change. A mask can have the
-right shape and still be applied to the wrong axis, which structural assertions
-cannot catch.
+unchanged. Measured: causal `0.000e+00` before the corrupted position against
+`1.040e+01` after; padding `0.000e+00` on CPU and `5.722e-06` on GPU. The
+nonzero GPU value is cuBLAS choosing different reduction orders for different
+tensor widths — floating-point addition is not associative — and sits six orders
+of magnitude below the scale of a real leak. A mask can have the right shape and
+still be applied to the wrong axis, which structural assertions cannot catch.
 
 **Overfitting a single batch** is the last gate before a real training run. A
 correct seq2seq model memorises one batch quickly; if loss plateaus there, more
@@ -222,6 +253,20 @@ output and a plausible score. Three independent checks instead:
    That is beam search's entire purpose.
 3. Mean hypothesis length must be non-decreasing in alpha.
 
+Measured on a length-diverse probe (source lengths 9–128 subwords): base
+improves mean sequence log-probability from −15.005 to −11.230, strictly better
+on 4/8 sentences and never worse; small from −25.003 to −11.485, strictly better
+on 2/8. That beam is only *strictly* better on some sentences is expected — on
+the rest greedy already found the highest-probability sequence.
+
+**A test that passed vacuously.** The first version of this script drew its
+probe from the first batch of a length-bucketed loader. Because the sampler
+sorts by length, that returned the *eight shortest* validation sentences — mean
+hypothesis length 3.2 subwords. On inputs that short, greedy and beam produce
+identical output and no length penalty can lengthen anything, so checks 2 and 3
+reported PASS while testing nothing. Sentence selection now spans the length
+distribution. A test that passes for the wrong reason is worse than no test.
+
 **Order restoration.** `translate_corpus` sorts by length for efficient batching
 and then inverts the permutation. Forgetting the inversion misaligns hypotheses
 against references and yields a near-zero BLEU that looks exactly like a model
@@ -245,7 +290,8 @@ to six decimal places across four noise regimes from 1.57 to 67.76 BLEU.
 the corpus, and OPUS-100 en-es is subtitle dialogue with a median of 12
 subwords. A headline score can hide near-total failure on long sentences, so
 results are reported per bucket with the hypothesis/reference length ratio
-alongside — a ratio well under 1.0 in the long buckets is direct evidence of
+alongside. The measured ratio turned out to be ≈0.92 in *every* bucket, not just
+the long ones — a uniform under-generation bias rather than length-specific
 truncation.
 
 **sacreBLEU signature** is recorded with every score
@@ -260,8 +306,45 @@ sentences that were actually read, not whatever the classifier labelled.
 **Attention maps** come free because attention is implemented manually and every
 module returns its weight matrix — no forward hooks needed.
 
+## Length-penalty tuning notes
+
+`sweep_length_penalty.py` sweeps the GNMT exponent α on the **validation** set
+and applies only the winning value to test. Tuning a decoding hyperparameter by
+test BLEU would contaminate the test set exactly as selecting a checkpoint on
+test would.
+
+Two findings worth recording.
+
+**The BLEU-optimal length ratio is ≈0.98, not 1.0.** The sweep crosses the
+optimum: at α=2.6 the test ratio is 0.979 for 26.33 BLEU, at α=4.0 it reaches
+0.991 for 26.24. Driving hypotheses to reference length is achievable but costs
+more n-gram precision than it recovers in brevity penalty.
+
+**A monotonically improving tuning curve is not evidence that the largest value
+is best.** base's validation BLEU rose at every α from 0.6 to 4.0, but the
+spread above α≈1.8 was only 0.38 BLEU on 1,000 sentences — within sampling
+noise. The validation argmax (α=4.0) transferred *worse* to test than α=2.6 did.
+We report the α=4.0 result because that is what the protocol selects; choosing
+26.33 instead would be selection on the test set.
+
 ## Future work
 
-Incremental decoding with a KV cache. Each beam step currently re-runs the
-decoder over the whole prefix, which is O(T^2) overall. At these lengths it is
-not the bottleneck, and the simpler code is far easier to verify.
+**Incremental decoding with a KV cache.** Each beam step re-runs the decoder
+over the whole prefix, O(T²) overall. Not the bottleneck at these lengths, and
+the simpler code is far easier to verify.
+
+**A larger tuning set.** Length-penalty selection is noise-limited at 1,000
+validation sentences. Tuning on the full 2,000, or averaging over bootstrap
+resamples rather than taking a point argmax, would make it reproducible.
+
+**Extended training.** Neither model converged before the cosine schedule
+expired — the learning rate hit its floor exactly as the curves flattened, so
+convergence cannot be distinguished from the schedule ending.
+
+**Entity handling.** Untranslated named entities are 10.9% of the test set, the
+largest addressable error category. Options: a copy mechanism, a bilingual
+entity lexicon, or oversampling entity-bearing sentences.
+
+**Contrastive evaluation.** Corpus BLEU inverted on at least one grammatical
+constraint (the smaller model produced the required personal *a* where the
+larger omitted it). A targeted suite would measure what BLEU averages away.
